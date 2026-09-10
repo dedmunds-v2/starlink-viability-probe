@@ -1,0 +1,100 @@
+{
+  "uid": "starlink-overview",
+  "title": "Starlink Viability — Overview",
+  "tags": ["starlink", "wan"],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "TCP connect RTT by target (ms)",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "starlink_probe_tcp_connect_seconds * 1000",
+        "legendFormat": "{{metro}} ({{target}})",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "End-to-end (TCP+TLS+TTFB) (ms)",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "starlink_probe_total_seconds * 1000",
+        "legendFormat": "{{metro}} ({{target}})",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "TTFB (bufferbloat indicator) (ms)",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+      "targets": [{
+        "expr": "starlink_probe_ttfb_seconds * 1000",
+        "legendFormat": "{{metro}} ({{target}})",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Loss — failed cycles (% , 5m windows)",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+      "targets": [{
+        "expr": "100 * rate(starlink_probe_errors_total[5m]) / rate(starlink_probe_cycles_total[5m])",
+        "legendFormat": "{{target}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Segment split: satellite vs ground (ms)",
+      "description": "Satellite = RTT to last CGNAT (100.64/10) hop from traceroute. Ground = probe RTT minus Starlink exit-hop RTT. On non-Starlink uplinks both panels show fallback values.",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 18},
+      "targets": [
+        {
+          "expr": "starlink_path_satellite_segment_seconds * 1000",
+          "legendFormat": "satellite: {{target}}",
+          "refId": "A"
+        },
+        {
+          "expr": "(starlink_probe_tcp_connect_seconds - starlink_path_starlink_exit_rtt_seconds) * 1000",
+          "legendFormat": "ground: {{target}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Path changes and exit POP",
+      "description": "Path-hash change rate (POP egress / route churn) and current Starlink exit ASN.",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 18},
+      "targets": [
+        {
+          "expr": "increase(starlink_path_changes_total[1h])",
+          "legendFormat": "changes/h: {{target}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"min": 0}}
+    }
+  ],
+  "schemaVersion": 39
+}

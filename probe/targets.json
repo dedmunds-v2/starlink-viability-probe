@@ -1,0 +1,68 @@
+{
+  "targets": [
+    {
+      "name": "aws-us-east-1",
+      "metro": "us-east",
+      "colo_proxy": "NY4/NY5, Mahwah, Carteret",
+      "host": "ec2.us-east-1.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-us-east-2",
+      "metro": "us-east (Ohio/Chicago proxy)",
+      "colo_proxy": "CME Aurora",
+      "host": "ec2.us-east-2.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-us-west-2",
+      "metro": "us-west",
+      "colo_proxy": "NW quadrant US (reference)",
+      "host": "ec2.us-west-2.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-eu-west-2",
+      "metro": "london",
+      "colo_proxy": "LD4-LD6, Equinix Slough",
+      "host": "ec2.eu-west-2.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-eu-central-1",
+      "metro": "frankfurt",
+      "colo_proxy": "Equinix FR2, Deutsche Boerse",
+      "host": "ec2.eu-central-1.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-ap-northeast-1",
+      "metro": "tokyo",
+      "colo_proxy": "TY2/TY3, JPX CC2",
+      "host": "ec2.ap-northeast-1.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-ap-southeast-1",
+      "metro": "singapore",
+      "colo_proxy": "SGX",
+      "host": "ec2.ap-southeast-1.amazonaws.com",
+      "port": 443,
+      "tls": true
+    },
+    {
+      "name": "aws-ap-east-1",
+      "metro": "hong-kong",
+      "colo_proxy": "HKEX",
+      "host": "ec2.ap-east-1.amazonaws.com",
+      "port": 443,
+      "tls": true
+    }
+  ]
+}
