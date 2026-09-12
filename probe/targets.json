@@ -3,7 +3,7 @@
     {
       "name": "aws-us-east-1",
       "metro": "us-east",
-      "colo_proxy": "NY4/NY5, Mahwah, Carteret",
+      "colo_proxy": "NY metro proxy: us-east-1=Ashburn (+~6-7ms to NY4/Mahwah)",
       "host": "ec2.us-east-1.amazonaws.com",
       "port": 443,
       "tls": true
@@ -11,7 +11,7 @@
     {
       "name": "aws-us-east-2",
       "metro": "us-east (Ohio/Chicago proxy)",
-      "colo_proxy": "CME Aurora",
+      "colo_proxy": "CME Aurora proxy: us-east-2=Columbus (+~8ms to Aurora)",
       "host": "ec2.us-east-2.amazonaws.com",
       "port": 443,
       "tls": true

@@ -94,10 +94,14 @@ End-to-end latency is decomposed using three independent signals:
    metro, probing back toward the Starlink POP/exit IP bounds the
    ground-station↔colo segment without any inference.
 
-Fallback behavior: if hops are silent or no CGNAT hop responds, the exit-hop
-RTT is used as the satellite estimate and
+Fallback behavior: if hops are silent or no CGNAT hop responds, a non-final
+fallback hop's RTT is used as the satellite estimate and
 `starlink_path_satellite_estimate_source{source="exit_fallback"}` flags the
-reduced confidence.
+reduced confidence. The final (target) hop is never eligible as a fallback —
+otherwise a fully-silent path would make exit RTT == target RTT and the ground
+segment would silently read ~0; `starlink_path_exit_confident == 0` exposes
+that condition instead. Traceroutes use `-q 2` with min-RTT so a single
+dropped TTL-exceeded doesn't delete a landmark hop.
 
 Starlink's own dish telemetry (`192.168.100.1` gRPC — obstruction %, SNR, alerts,
 scheduled downtime) is **phase 2**, to correlate RF events with latency/loss events.
@@ -130,12 +134,35 @@ Targets live in `probe/targets.json` — easy to extend.
       AS14593/CGNAT segmentation, path-hash churn detection, per-hop RTT metrics.
       **Done:** `starlink_path_*` metrics flowing (validated against a terrestrial
       uplink; CGNAT segmentation to be validated on the real dish).
+- [ ] **M5 — Dish telemetry integration** *(moved ahead of M3 — without dish
+      gRPC `pop_ping_*` ground truth, the CGNAT-based segmentation cannot be
+      validated, so the M3 baseline would be untrustworthy)*: STARLINK gRPC
+      metrics (`pop_ping_latency_ms`, `pop_ping_drop_rate`, state, alerts)
+      correlated with latency/loss events. `pop_ping_*` is low-priority ping
+      traffic, so treat it as a biased-up bound, not minimum achievable.
 - [ ] **M3 — Baseline capture**: run ≥ 1 week from the residential Starlink site;
-      capture by time-of-day, weather, day-of-week.
+      capture by time-of-day, weather, day-of-week. Interval is jittered
+      (9 ± 2 s) to avoid phase-locking with the 15 s satellite scheduling cadence.
 - [ ] **M4 — Reference baseline**: run the same probe from a fiber-connected site
       (or pull RIPE Atlas data) and build side-by-side comparison dashboards.
-- [ ] **M5 — Dish telemetry integration**: STARLINK gRPC metrics (obstruction, SNR,
-      alerts) correlated with latency/loss events.
+      A cheap fiber VPS in the probe's metro running the same compose stack
+      should be brought up *concurrently* with M3 — without it, transit-side
+      variance is unattributable to Starlink.
+
+**Deferred to the production trial** (not needed for the test-rig baseline;
+must be revisited before any trading-context pilot — council review):
+
+- High-rate lane (25–100 Hz sequenced ping / TWAMP-STAMP per RFC 5357/8762) —
+  required to observe the §2 micro-outage threshold and construct p99/p99.9,
+  IPDV, loss-burst-length, and reordering statistics the trading world certifies
+  paths with.
+- Anchors re-homed from `ec2.<region>` endpoints to facility-disclosed,
+  non-anycast endpoints (pinned-AZ instances / RIPE Atlas anchors); AWS backbone
+  ingress otherwise biases the ground segment (see §8).
+- Long-lived-session survival testing (does a FIX-like TCP session ride through
+  handovers and firmware reboots?).
+- One-way-delay/asymmetry measurement (clock-synced probes) for market-data
+  freshness analysis.
 - [ ] **M6 — Viability report**: evaluate against Section 2 thresholds; recommend
       which metro paths (if any) merit a real Starlink enterprise/roaming trial.
 
@@ -162,7 +189,20 @@ starlink/
   treat results as a *floor/indicator*. An enterprise/roaming service test is the likely
   follow-up if results look promising.
 - **Cloud anchors are proxies**: cloud-region latency ≈ metro latency, not exact colo
-  latency. The gap is documented and constant-ish for comparison purposes.
+  latency. Known biases (council review): `us-east-1` is Ashburn, +~6–7 ms from
+  Mahwah/Secaucus; `us-east-2` is Columbus, +~8 ms from CME Aurora (labels in
+  `targets.json` state this). More subtle: traffic to `ec2.<region>.amazonaws.com`
+  ingresses the AWS backbone at the nearest edge, so the *ground segment* we
+  derive is "POP → AWS edge + AWS backbone", not the public-internet path a
+  broker session would take — comparisons against future fiber measurements must
+  use the same anchors on both sides to cancel this out.
+- **Path-hash churn is inverted vs intuition**: satellite handovers are below the
+  IP layer and do NOT churn traceroute paths. `path_hash` changes should be rare
+  and indicate ground-station/POP re-pins; a *high* churn rate is itself the
+  anomaly worth alerting on.
+- **IPv6 divergence**: the dish delegates a globally-routed /56; IPv6 traffic can
+  egress a different POP and skips CGNAT. The probe pins AF_INET and path
+  tracing is IPv4-only so both instruments describe the same path.
 - **Laser-interlink dependence**: Starlink intercontinental latency depends on the
   constellation's inter-satellite links and gateway routing; expect more path variance
   over time than fiber. Long capture windows are essential (M3).

@@ -66,11 +66,13 @@ def _traceroute(host, port):
     if not traceroute:
         return None
     # TCP first (matches measured flows, passes most firewalls), then ICMP,
-    # then classic UDP.
+    # then classic UDP. -q 2: a single dropped TTL-exceeded would otherwise
+    # silently delete a hop landmark (e.g. the CGNAT hop) and flip the
+    # segment estimate to the fallback.
     attempts = [
-        [traceroute, "-n", "-A", "-q", "1", "-w", "2", "-T", "-p", str(port), host],
-        [traceroute, "-n", "-A", "-q", "1", "-w", "2", "-I", host],
-        [traceroute, "-n", "-A", "-q", "1", "-w", "2", host],
+        [traceroute, "-n", "-A", "-q", "2", "-w", "2", "-T", "-p", str(port), host],
+        [traceroute, "-n", "-A", "-q", "2", "-w", "2", "-I", host],
+        [traceroute, "-n", "-A", "-q", "2", "-w", "2", host],
     ]
     for cmd in attempts:
         try:
@@ -92,23 +94,32 @@ def _parse(output):
         ttl = int(m.group(1))
         rest = m.group(2)
         ip_m = IP_RE.search(rest)
-        rtt_m = RTT_RE.search(rest)
         asn_m = ASN_RE.search(rest)
-        if ip_m and rtt_m:  # skip "* * *" unresolved hops
+        rtts = RTT_RE.findall(rest)
+        if ip_m and rtts:  # skip "* * *" unresolved hops; min-RTT over -q prods
             hops.append(Hop(
                 ttl=ttl,
                 ip=ip_m.group(1),
-                rtt_s=float(rtt_m.group(1)) / 1000.0,
+                rtt_s=min(float(r) for r in rtts) / 1000.0,
                 asn=asn_m.group(1) if asn_m else "",
             ))
     return hops
 
 
 def _classify(hops):
-    """Derive segment landmarks from the hop list."""
-    first_public = next((h for h in hops if _is_public(h.ip)), None)
+    """Derive segment landmarks from the hop list.
+
+    Returns (first_public, last_cgnat, starlink_exit, exit_confident).
+    exit_confident is False when no real Starlink-edge hop was found and the
+    exit was estimated from a fallback — crucially, the final (target) hop is
+    never eligible as a fallback, otherwise silent intermediate hops would
+    make exit_rtt == target RTT and the 'ground segment' would silently
+    report ~0.
+    """
+    non_final = hops[:-1]  # final hop is the target; never a landmark
+    first_public = next((h for h in non_final if _is_public(h.ip)), None)
     last_cgnat = None
-    for h in hops:
+    for h in non_final:
         try:
             if ipaddress.ip_address(h.ip) in CGNAT:
                 last_cgnat = h
@@ -116,12 +127,17 @@ def _classify(hops):
                 break
         except ValueError:
             continue
-    starlink_exit = next((h for h in hops if h.asn == STARLINK_ASN), None)
+
+    starlink_exit = next((h for h in non_final if h.asn == STARLINK_ASN),
+                         None)
+    confident = starlink_exit is not None
     if starlink_exit is None:
-        # ASN lookup unavailable or exit hop silent: approximate with first
-        # public hop (Starlink egress is the first routable address seen).
+        # ASN lookup unavailable or exit hop silent: approximate with the
+        # first non-final public hop (Starlink egress is the first routable
+        # address seen). If even that is absent (everything silent until the
+        # target), leave exit unset entirely.
         starlink_exit = first_public
-    return first_public, last_cgnat, starlink_exit
+    return first_public, last_cgnat, starlink_exit, confident
 
 
 def _path_hash(hops):
@@ -148,7 +164,8 @@ class PathCollector:
         hops = _parse(out)
         if not hops:
             return
-        first_public, last_cgnat, starlink_exit = _classify(hops)
+        first_public, last_cgnat, starlink_exit, exit_confident = \
+            _classify(hops)
         phash = _path_hash(hops)
         with self._lock:
             prev = self._last_hash.get(target.name)
@@ -171,6 +188,7 @@ class PathCollector:
                                     else (starlink_exit.rtt_s
                                           if starlink_exit else float("nan"))),
                 "satellite_from_fallback": last_cgnat is None,
+                "exit_confident": exit_confident,
             }
 
     def run(self):
@@ -242,17 +260,34 @@ class PathCollector:
                     f'path_hash="{p["hash"]}",exit_ip="{p["exit_ip"]}",'
                     f'exit_asn="{exit_asn}"}} 1')
 
+        lines.append("# HELP starlink_path_exit_confident "
+                     "1 if a genuine Starlink exit hop (AS14593 or a non-final "
+                     "public hop) was found; 0 if exit metrics are empty "
+                     "because every intermediate hop was silent")
+        lines.append("# TYPE starlink_path_exit_confident gauge")
+        lines.append("# HELP starlink_path_last_trace_timestamp_seconds "
+                     "Unix time of the last successful traceroute per target")
+        lines.append("# TYPE starlink_path_last_trace_timestamp_seconds gauge")
+        for t in self.targets:
+            p = paths.get(t.name)
+            if p:
+                lines.append(f'starlink_path_exit_confident'
+                             f'{{target="{t.name}"}} '
+                             f'{1 if p["exit_confident"] else 0}')
+                lines.append(f'starlink_path_last_trace_timestamp_seconds'
+                             f'{{target="{t.name}"}} {p["ts"]}')
+
         lines.append("# HELP starlink_path_hop_rtt_seconds "
-                     "RTT per hop from the most recent traceroute")
+                     "RTT per hop from the most recent traceroute, keyed by "
+                     "target+ttl only to limit label churn on reroutes")
         lines.append("# TYPE starlink_path_hop_rtt_seconds gauge")
         for t in self.targets:
             p = paths.get(t.name)
             if p:
                 for h in p["hops"]:
-                    asn = h.asn or "unknown"
                     lines.append(
                         f'starlink_path_hop_rtt_seconds{{target="{t.name}",'
-                        f'ttl="{h.ttl}",ip="{h.ip}",asn="{asn}"}} {h.rtt_s}')
+                        f'ttl="{h.ttl}"}} {h.rtt_s}')
 
         lines.append("# HELP starlink_path_changes_total "
                      "Traceroute path-hash changes seen per target")

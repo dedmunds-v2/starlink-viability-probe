@@ -1,23 +1,48 @@
+# Security posture: everything binds to localhost only. The probe host may
+# join untrusted networks (hotel/conference) and none of these services have
+# authentication worth exposing. Access dashboards from other machines via
+# SSH port-forward: ssh -L3000:localhost:3000 <probe-host>
+#
+# Grafana password: set GRAFANA_ADMIN_PASSWORD in a gitignored .env file here;
+# the default below exists only so a fresh clone can boot for local testing.
+
 services:
   probe:
     build: ./probe
     ports:
-      - "9108:9108"
+      - "127.0.0.1:9108:9108"
     # TCP/ICMP traceroute requires raw-socket capability
     cap_add:
       - NET_RAW
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:9108/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=90d"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
   grafana:
@@ -27,9 +52,15 @@ services:
       - grafana-data:/var/lib/grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Override via .env (gitignored): GRAFANA_ADMIN_PASSWORD=...
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:

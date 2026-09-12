@@ -14,6 +14,7 @@ Usage:
 import argparse
 import http.server
 import json
+import random
 import socket
 import ssl
 import threading
@@ -49,28 +50,39 @@ class Sample:
 
 
 class Probe:
-    def __init__(self, targets, interval):
+    def __init__(self, targets, interval, jitter=2.0):
         self.targets = targets
         self.interval = interval
+        self.jitter = jitter
         self.latest = {t.name: Sample() for t in targets}
         self.cycle_errors = {t.name: 0 for t in targets}
         self.cycles_total = {t.name: 0 for t in targets}
         self.started = time.time()
         self._lock = threading.Lock()
+        self._threads = []
 
     def measure(self, target: Target) -> Sample:
         sample = Sample(ts=time.time())
         sock = None
         try:
+            # Pin to IPv4: on the Starlink LAN the dish delegates a /56 and
+            # IPv6 traffic can egress a different POP (and no CGNAT) than the
+            # IPv4 path being tracerouted — path.py is IPv4-only, so metrics
+            # must describe the same family. TLS SNI still uses the hostname.
+            addr4 = socket.getaddrinfo(target.host, target.port,
+                                       socket.AF_INET)[0][4][0]
             t0 = time.perf_counter()
-            sock = socket.create_connection(
-                (target.host, target.port), timeout=REQUEST_TIMEOUT
-            )
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(REQUEST_TIMEOUT)
+            sock.connect((addr4, target.port))
             t1 = time.perf_counter()
             sample.tcp_connect_s = t1 - t0
 
             if target.tls:
                 ctx = ssl.create_default_context()
+                # Timing only — we measure handshake latency and discard the
+                # response bytes. Verification is deliberately disabled;
+                # NEVER trust data received over this connection.
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
                 ssock = ctx.wrap_socket(sock, server_hostname=target.host)
@@ -105,10 +117,13 @@ class Probe:
                     pass
         return sample
 
-    def run(self):
+    def _target_loop(self, target):
+        """One thread per target so timeouts/outages don't skew other
+        targets' cadence. Interval is jittered to avoid phase-locking with
+        the satellite constellation's 15 s scheduling cadence."""
         while True:
             cycle_start = time.perf_counter()
-            for target in self.targets:
+            try:
                 sample = self.measure(target)
                 with self._lock:
                     self.latest[target.name] = sample
@@ -116,9 +131,21 @@ class Probe:
                     if not sample.success:
                         self.cycle_errors[target.name] += 1
                 if not sample.success:
-                    print(f"[{time.strftime('%H:%M:%S')}] {target.name}: {sample.error}")
+                    print(f"[{time.strftime('%H:%M:%S')}] {target.name}: "
+                          f"{sample.error}")
+            except Exception as exc:  # keep this target's thread alive
+                print(f"[{time.strftime('%H:%M:%S')}] {target.name}: "
+                      f"unexpected {type(exc).__name__}: {exc}")
             elapsed = time.perf_counter() - cycle_start
-            time.sleep(max(0.0, self.interval - elapsed))
+            sleep_s = self.interval + random.uniform(-self.jitter, self.jitter)
+            time.sleep(max(1.0, sleep_s - elapsed))
+
+    def run(self):
+        for target in self.targets:
+            t = threading.Thread(target=self._target_loop, args=(target,),
+                                 daemon=True)
+            t.start()
+            self._threads.append(t)
 
     # ----- Prometheus exposition -----
 
@@ -151,6 +178,10 @@ class Probe:
              "End-to-end time (connect+TLS+TTFB)", lambda s: s.total_s)
         emit("starlink_probe_success",
              "1 if the last measurement cycle succeeded", lambda s: s.success)
+        emit("starlink_probe_last_sample_timestamp_seconds",
+             "Unix time of last measurement attempt; alert when "
+             "time() - this > ~60s (stale data otherwise looks fresh)",
+             lambda s: s.ts if s.ts else float("nan"))
 
         lines.append("# HELP starlink_probe_cycles_total Measurement cycles attempted")
         lines.append("# TYPE starlink_probe_cycles_total counter")
@@ -212,15 +243,18 @@ def main():
     ap = argparse.ArgumentParser(description="Starlink viability probe")
     ap.add_argument("--config", default="targets.json")
     ap.add_argument("--port", type=int, default=METRICS_PORT)
-    ap.add_argument("--interval", type=float, default=10.0,
-                    help="seconds between measurement cycles")
+    ap.add_argument("--interval", type=float, default=9.0,
+                    help="base seconds between measurement cycles per target")
+    ap.add_argument("--jitter", type=float, default=2.0,
+                    help="+/- seconds of jitter on the interval (avoids "
+                         "phase-locking with the 15s satellite schedule)")
     ap.add_argument("--path-interval", type=float, default=300.0,
                     help="seconds between per-target traceroutes (0 disables "
                          "path/hop identification)")
     args = ap.parse_args()
 
     targets = load_targets(args.config)
-    probe = Probe(targets, args.interval)
+    probe = Probe(targets, args.interval, jitter=args.jitter)
     Handler.probe = probe
 
     if args.path_interval > 0:

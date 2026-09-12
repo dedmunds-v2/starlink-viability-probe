@@ -1,0 +1,33 @@
+groups:
+  - name: starlink-probe
+    interval: 30s
+    rules:
+      - alert: StarlinkProbeDown
+        expr: up{job="starlink-probe"} == 0
+        for: 2m
+        annotations:
+          summary: "Probe exporter unreachable"
+      - alert: StarlinkProbeStaleData
+        expr: time() - starlink_probe_last_sample_timestamp_seconds > 60
+        for: 2m
+        annotations:
+          summary: "Probe measurements stale for target {{ $labels.target }} (>60s)"
+      - alert: StarlinkProbeHighErrorRate
+        expr: |
+          sum by (target) (increase(starlink_probe_errors_total[1h]))
+            / sum by (target) (increase(starlink_probe_cycles_total[1h])) > 0.5
+        for: 30m
+        annotations:
+          summary: ">50% of measurement cycles failing for {{ $labels.target }} over 1h"
+      - alert: StarlinkPathCollectorDegraded
+        expr: |
+          starlink_path_collector_available == 0
+            or (time() - starlink_path_last_trace_timestamp_seconds > 1200)
+        for: 10m
+        annotations:
+          summary: "Path/traceroute collector degraded for {{ $labels.target }}"
+      - alert: StarlinkPathExitNotFound
+        expr: starlink_path_exit_confident == 0
+        for: 1h
+        annotations:
+          summary: "No Starlink exit/CGNAT landmarks visible for {{ $labels.target }} (all hops silent?)"
