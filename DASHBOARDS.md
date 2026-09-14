@@ -30,7 +30,25 @@ in for major financial colos (NY metro, London, Frankfurt, Tokyo, Singapore, HK)
 | **Cross-validation: dish ping vs traceroute segment** | The methodological heart of the study. If Starlink's own dish→POP number tracks our CGNAT-landmark estimate, the satellite/ground split in Dashboard 1 is confirmed trustworthy — which is what makes the whole viability report defensible. Persistent divergence = path change or detection failure, and we investigate before reading any baseline. |
 | **Throughput & obstruction fraction** | Load context (residential deprioritization couples throughput to latency in evening peaks) and RF-health context (tree growth, weather, alignment drift). |
 
-## How the two boards are used together
+## Dashboard 3 — Starlink Viability: Atlas
+*Purpose: geographic context — where the measurements terminate and which POP serves us.*
+
+| Panel | Why we collect it |
+|---|---|
+| **Measurement-anchors map** | The 8 cloud-region anchors plotted where they actually are (Ashburn, Columbus, Boardman, London, Frankfurt, Tokyo, Singapore, Hong Kong), each labelled with the colo it proxies and the known metro offset. Answers at a glance: "this latency goes *where*?" |
+| **Serving POP (egress geofeed)** | Which Starlink POP currently serves the dish, resolved from SpaceX's own RFC-8805 geofeed (`geoip.starlinkisp.net`, referenced in the RIR records) applied to our egress IP. City-level only — the dish's GPS is deliberately unused (it's unavailable via gRPC on recent firmware anyway). |
+| **Geofeed/egress health** | Red = the geo labels may be stale or we're not actually on a Starlink egress — guards against reading a VPN/backup-uplink window as Starlink data. |
+| **POP exit RTT** | Latency to the Starlink edge per target, labelled with POP geography. A step change here plus a new city label = a POP re-pin, named and dated. |
+| **Path identities table** | Per-target: exit interface IP, AS14593, POP city/region/country, current path hash. The reference table for interpreting any anomaly in the other two boards. |
+
+Data provenance: POP geography comes from SpaceX's official geofeed
+(`geoip.starlinkisp.net`, refreshed daily); serving-POP cross-check is Starlink's
+own PTR convention (`customer.<popcode>.isp.starlink.com`, e.g. observed
+`…clgycan1…` ↔ Calgary CA-AB — geofeed and PTR agree). Interactive constellation
+maps (gateways, spot beams, ISL links): starlink.sx. Raw orbital elements for any
+future live-satellite layer: CelesTrak GP JSON (`GROUP=starlink`, no auth).
+
+## How the three boards are used together
 1. **First hour on-site (done):** cross-validation panel confirms dish truth ≈ traceroute segment → segmentation method certified for the path.
 2. **Baseline week (M3):** Overview answers "what does Starlink deliver per metro, by time of day"; Dish board answers "why" whenever anomalies appear (alerts, drops, throughput).
 3. **M6 viability report:** compares per-metro latency/loss distributions against the plan's thresholds, with **persistent-signal vs Starlink-side-events attributable via Dish board annotations**.

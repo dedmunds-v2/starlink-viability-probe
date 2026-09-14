@@ -1,0 +1,123 @@
+{
+  "uid": "starlink-atlas",
+  "title": "Starlink Viability — Atlas",
+  "tags": ["starlink", "map", "pop"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {"from": "now-6h", "to": "now"},
+  "description": "Geographic context: measurement anchors (cloud regions standing in for financial colos), our serving Starlink POP (from SpaceX's official geoip.starlinkisp.net feed), and per-target exit history. Serving-POP is IP-derived, city-level only — never validated GPS.",
+  "panels": [
+    {
+      "id": 1,
+      "type": "geomap",
+      "title": "Measurement anchors and serving area",
+      "description": "Orange = cloud-region anchors (colo stand-ins). The currently served POP region is shown in the stat panels right (source: official SpaceX geofeed + our egress IP).",
+      "gridPos": {"h": 14, "w": 15, "x": 0, "y": 0},
+      "datasource": {"type": "grafana-testdata-datasource"},
+      "targets": [{
+        "refId": "A",
+        "scenarioId": "csv_content",
+        "csvContent": "name,kind,latitude,longitude\nAshburn VA (us-east-1 ≈ NY metro +6-7ms),anchor,39.0438,-77.4874\nColumbus OH (us-east-2 ≈ CME Aurora +~8ms),anchor,39.9612,-82.9988\nBoardman OR (us-west-2 reference),anchor,45.8399,-119.7006\nLondon (eu-west-2 ≈ LD4-LD6),anchor,51.5074,-0.1278\nFrankfurt (eu-central-1 ≈ FR2),anchor,50.1109,8.6821\nTokyo (ap-northeast-1 ≈ JPX CC2),anchor,35.6895,139.6917\nSingapore (ap-southeast-1 ≈ SGX),anchor,1.3521,103.8198\nHong Kong (ap-east-1 ≈ HKEX),anchor,22.3193,114.1694"
+      }],
+      "options": {
+        "view": {"id": "roam", "lat": 30, "lon": 10, "zoom": 1.6},
+        "layers": [
+          {"type": "basemap",
+           "name": "base",
+           "config": {"type": "default"}},
+          {"name": "Anchors",
+           "type": "markers",
+           "location": {"mode": "auto"},
+           "tooltip": true,
+           "config": {
+             "style": {"color": {"fixed": "orange"},
+                       "size": {"fixed": 8},
+                       "opacity": 0.85},
+             "showLabel": true,
+             "textConfig": {"field": "name", "fontSize": 9}
+           }}
+        ],
+        "controls": {"showZoom": true, "mouseWheelZoom": true,
+                     "showAttribution": false, "showScale": true}
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Serving POP (egress, geofeed)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 5, "w": 9, "x": 15, "y": 0},
+      "targets": [{
+        "expr": "starlink_serving_pop_info",
+        "legendFormat": "{{pop_city}}, {{pop_region}}",
+        "instant": true,
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none",
+                  "textMode": "name"},
+      "fieldConfig": {"defaults": {"mappings": [
+        {"type": "value", "options": {"1": {"text": "pop", "color": "blue"}}}
+      ]}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Geofeed + egress seen",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 2, "w": 9, "x": 15, "y": 5},
+      "targets": [{
+        "expr": "starlink_geofeed_available",
+        "legendFormat": "geofeed",
+        "instant": true,
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "POP exit RTT (ms)",
+      "description": "Latency to the Starlink edge per target. Jumps here + a geography label change = POP re-pin.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 9, "x": 15, "y": 7},
+      "targets": [{
+        "expr": "(starlink_path_starlink_exit_rtt_seconds * on(target) group_left(pop_city) starlink_path_info) * 1000",
+        "legendFormat": "{{target}} → {{pop_city}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Current path identities per target",
+      "description": "Latest traceroute result per target: exit interface, ASN, POP geography (geofeed), path hash. Rows churn on POP re-pins.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+      "targets": [{
+        "expr": "starlink_path_info",
+        "instant": true,
+        "format": "table",
+        "refId": "A"
+      }],
+      "transformations": [
+        {"id": "labelsToFields", "options": {}},
+        {"id": "organize",
+         "options": {"excludeByName": {"Time": true, "Value": true, "__name__": true},
+                     "renameByName": {"target": "Target",
+                                      "exit_ip": "Exit IP",
+                                      "exit_asn": "Exit ASN",
+                                      "pop_city": "POP City",
+                                      "pop_region": "POP Region",
+                                      "pop_country": "Country",
+                                      "path_hash": "Path hash"}}},
+        {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Target"}]}}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

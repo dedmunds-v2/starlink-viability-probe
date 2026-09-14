@@ -35,6 +35,78 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.request
+
+#: SpaceX's own RFC-8805 geofeed: "prefix,country,region,city,postal" rows
+#: covering all AS14593 announcements (customer egress and POP infra). The
+#: official mapping from Starlink IPs to POP/region — referenced from the
+#: RIR records (remarks: https://geoip.starlinkisp.net/). Note it covers
+#: customer prefixes; POP infra IPs are not listed, so the serving POP is
+#: identified by resolving OUR OWN egress IP (also serves as on-Starlink
+#: confirmation).
+GEOFEED_URL = "https://geoip.starlinkisp.net/"
+GEOFEED_REFRESH_S = 24 * 3600
+EGRESS_IP_URLS = ("https://ifconfig.me/", "https://api.ipify.org/")
+
+
+class GeoFeed:
+    """Longest-prefix-match resolver over SpaceX's geofeed."""
+
+    def __init__(self):
+        self._entries = []       # [(ip_network, country, region, city)]
+        self._fetched = 0.0
+        self.available = False
+        self.egress = None       # {"ip": str, "geo": dict} of our egress
+
+    def refresh(self):
+        if time.time() - self._fetched < GEOFEED_REFRESH_S:
+            return
+        try:
+            with urllib.request.urlopen(GEOFEED_URL, timeout=30) as r:
+                text = r.read().decode("utf-8", "replace")
+        except (OSError, urllib.error.URLError):
+            return  # keep prior table
+        entries = []
+        for line in text.splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 4:
+                try:
+                    entries.append((ipaddress.ip_network(parts[0]),
+                                    parts[1], parts[2], parts[3]))
+                except ValueError:
+                    continue
+        if entries:
+            entries.sort(key=lambda e: e[0].prefixlen)
+            self._entries = entries
+            self._fetched = time.time()
+            self.available = True
+        self._resolve_egress()
+
+    def _resolve_egress(self):
+        """Fetch our public egress IP and geolocate it (the serving POP)."""
+        for url in EGRESS_IP_URLS:
+            try:
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    ip_str = r.read().decode().strip()
+                ipaddress.ip_address(ip_str)
+                self.egress = {"ip": ip_str, "geo": self.lookup(ip_str)}
+                return
+            except (OSError, ValueError, urllib.error.URLError):
+                continue
+
+    def lookup(self, ip_str):
+        """Return dict(country, region, city) for the longest match."""
+        self.refresh()
+        if not self.available or not ip_str:
+            return None
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return None
+        for net, country, region, city in reversed(self._entries):
+            if ip in net:
+                return {"country": country, "region": region, "city": city}
+        return None
 
 CGNAT = ipaddress.ip_network("100.64.0.0/10")
 STARLINK_ASN = "14593"
@@ -154,6 +226,7 @@ class PathCollector:
         self.available = shutil.which("traceroute") is not None
         self.paths = {}            # target.name -> dict(latest path data)
         self.changes = {t.name: 0 for t in targets}
+        self.geofeed = GeoFeed()
         self._lock = threading.Lock()
         self._last_hash = {}
 
@@ -189,6 +262,11 @@ class PathCollector:
                                           if starlink_exit else float("nan"))),
                 "satellite_from_fallback": last_cgnat is None,
                 "exit_confident": exit_confident,
+                # POP geography from SpaceX's own geofeed (labels the exit
+                # with city/region/country so POP re-pins are named, not
+                # just numbered)
+                "exit_geo": (self.geofeed.lookup(starlink_exit.ip)
+                             if starlink_exit else None) or {},
             }
 
     def run(self):
@@ -248,17 +326,41 @@ class PathCollector:
                     f'starlink_path_satellite_estimate_source'
                     f'{{target="{t.name}",source="{src}"}} 1')
 
+        lines.append("# HELP starlink_geofeed_available 1 if SpaceX's "
+                     "geoip starlinkisp geofeed was fetched successfully")
+        lines.append("# TYPE starlink_geofeed_available gauge")
+        lines.append(f"starlink_geofeed_available "
+                     f"{1 if self.geofeed.available else 0}")
+
+        lines.append("# HELP starlink_serving_pop_info Our public egress and "
+                     "serving POP geography per SpaceX's geofeed "
+                     "(value always 1; refreshed daily)")
+        lines.append("# TYPE starlink_serving_pop_info gauge")
+        eg = self.geofeed.egress
+        if eg and eg.get("geo"):
+            geo = eg["geo"]
+            lines.append(
+                f'starlink_serving_pop_info{{'
+                f'ip="{eg["ip"]}",'
+                f'pop_city="{geo["city"]}",'
+                f'pop_region="{geo["region"]}",'
+                f'pop_country="{geo["country"]}"}} 1')
+
         lines.append("# HELP starlink_path_info Static info about current "
-                     "path (value always 1)")
+                     "path and POP geography (value always 1)")
         lines.append("# TYPE starlink_path_info gauge")
         for t in self.targets:
             p = paths.get(t.name)
             if p:
                 exit_asn = p["exit_asn"] or "unknown"
+                geo = p["exit_geo"]
                 lines.append(
                     f'starlink_path_info{{target="{t.name}",'
                     f'path_hash="{p["hash"]}",exit_ip="{p["exit_ip"]}",'
-                    f'exit_asn="{exit_asn}"}} 1')
+                    f'exit_asn="{exit_asn}",'
+                    f'pop_city="{geo.get("city", "unknown")}",'
+                    f'pop_region="{geo.get("region", "unknown")}",'
+                    f'pop_country="{geo.get("country", "unknown")}"}} 1')
 
         lines.append("# HELP starlink_path_exit_confident "
                      "1 if a genuine Starlink exit hop (AS14593 or a non-final "

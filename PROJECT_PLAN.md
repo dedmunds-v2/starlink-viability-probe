@@ -89,8 +89,19 @@ End-to-end latency is decomposed using three independent signals:
    `pop_ping_latency_ms`/`pop_ping_drop_rate` at 1 Hz: Starlink's own RTT and
    loss measurement to the POP. This is the ground truth for the satellite
    segment and needs no traceroute inference. (`starlink-grpc-tools`
-   `dish_grpc_prometheus.py status ping_drop` exports exactly this.)
-3. **Both-ended probing** (M4+) — once a fiber-side probe exists near an anchor
+   `dish_grpc_prometheus.py status alert_detail` exports exactly this.)
+3. **POP geography** — SpaceX publishes an RFC-8805 geofeed
+   (`geoip.starlinkisp.net`, linked from the AS14593 RIR records) mapping every
+   customer prefix to country/region/city. The probe resolves its own egress IP
+   through it daily → the serving POP is *named* in metrics
+   (`starlink_serving_pop_info`), and per-target exits get
+   `pop_city/region/country` labels when listed. Cross-check: customer PTR
+   records (`customer.<popcode>.isp.starlink.com`). Confirmed live: rig egress
+   resolved to Calgary, CA-AB, matching PTR `clgycan1`. For interactive
+   constellation/gateway/ISL visualization use **starlink.sx**; raw orbital
+   elements for a future live-satellite layer: CelesTrak GP JSON
+   (`GROUP=starlink`, no auth).
+4. **Both-ended probing** (M4+) — once a fiber-side probe exists near an anchor
    metro, probing back toward the Starlink POP/exit IP bounds the
    ground-station↔colo segment without any inference.
 
