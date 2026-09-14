@@ -51,7 +51,10 @@ services:
   # the Starlink router at 192.168.1.1).
   dish-exporter:
     image: ghcr.io/sparky8512/starlink-grpc-tools:latest
-    command: dish_grpc_prometheus.py status ping_drop
+    # status mode carries pop_ping_latency_ms / pop_ping_drop_rate (dish->POP
+    # ground truth); alert_detail adds individual alert bits. (ping_drop is
+    # not a valid mode on current releases despite older README mentions.)
+    command: dish_grpc_prometheus.py status alert_detail
     ports:
       - "127.0.0.1:9854:8080"
     logging:
