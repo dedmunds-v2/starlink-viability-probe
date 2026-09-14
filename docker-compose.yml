@@ -45,6 +45,22 @@ services:
         max-file: "3"
     restart: unless-stopped
 
+  # M5: dish telemetry — Starlink's own dish->POP latency/loss ground truth.
+  # Requires the dish (192.168.100.1:9200) to be reachable from the host
+  # (static/policy route on any intermediate router: 192.168.100.0/24 via
+  # the Starlink router at 192.168.1.1).
+  dish-exporter:
+    image: ghcr.io/sparky8512/starlink-grpc-tools:latest
+    command: dish_grpc_prometheus.py status ping_drop
+    ports:
+      - "127.0.0.1:9854:8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:11.1.0
     volumes:

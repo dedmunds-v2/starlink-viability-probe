@@ -114,32 +114,19 @@ The council flagged these as must-validate empirically on the dish LAN:
       an hour, and again tomorrow. Satellite segment and path-hash panels should
       populate within ~10 minutes of the first traceroutes.
 
-## 7. (M5) Dish telemetry exporter — optional but recommended capture addition
+## 7. (M5) Dish telemetry exporter — included by default
 
-Adds Starlink's own dish→POP latency/loss as ground truth, in Prometheus format
-(port 8080). Append to `docker-compose.yml` under `services:`:
+Adds Starlink's own dish→POP latency/loss as ground truth
+(`starlink-grpc-tools`, gRPC on 192.168.100.1:9200). The `dish-exporter`
+service and its Prometheus scrape job ship in the repo — on this LAN it works
+out of the box because the second router (192.168.250.1) has a policy route
+forwarding 192.168.100.0/24 to the Starlink router.
 
-```yaml
-  dish-exporter:
-    image: ghcr.io/sparky8512/starlink-grpc-tools:latest
-    command: dish_grpc_prometheus.py status ping_drop
-    ports:
-      - "127.0.0.1:9854:8080"
-    restart: unless-stopped
+Confirm it's flowing after `docker compose up -d`:
+
+```bash
+curl -s localhost:9854/metrics | grep pop_ping
 ```
-
-Append to `prometheus/prometheus.yml` under `scrape_configs:`:
-
-```yaml
-  - job_name: dish
-    static_configs:
-      - targets: ["dish-exporter:8080"]
-        labels:
-          site: starlink-residential
-```
-
-Then `docker compose up -d` and confirm new series: `curl -s
-localhost:9854/metrics | grep pop_ping`.
 
 **Validation:** dish `pop_ping_latency_ms` should track (and bound from above —
 it's low-priority ping) the traceroute-derived `starlink_path_satellite_segment_seconds`.

@@ -13,3 +13,9 @@ scrape_configs:
       - targets: ["probe:9108"]
         labels:
           site: starlink-residential
+
+  - job_name: dish
+    static_configs:
+      - targets: ["dish-exporter:8080"]
+        labels:
+          site: starlink-residential
