@@ -1,8 +1,15 @@
 # Deployment Guide — Starlink-LAN monitoring laptop
 
-Target host: any Linux laptop (Ubuntu/Debian assumed; adjust package commands for
-others). Goal: the probe + Prometheus + Grafana stack running unattended on the
-Starlink LAN, collecting the M3 baseline with M5 dish telemetry validating it.
+Target host: **Kali Linux** (testing device; rolling, Debian-family — the steps
+below are written for it and also work on Ubuntu/Debian). Goal: the probe +
+Prometheus + Grafana stack running unattended on the Starlink LAN, collecting
+the M3 baseline with M5 dish telemetry validating it.
+
+Kali notes:
+- Modern Kali runs a normal non-root user (`kali`); all `sudo` steps apply as-is.
+- Kali "version" strings vary (rolling release); nothing below is version-sensitive.
+- A pentest distro doing honest outbound HTTPS measurements is unremarkable; still,
+  don't run unrelated Kali tooling against the target anchors during captures.
 
 Estimated time: 30–45 min including OS prep.
 
@@ -29,18 +36,30 @@ Estimated time: 30–45 min including OS prep.
 ## 2. OS preparation
 
 ```bash
-# Disable all sleep paths (lid-close too)
+# Disable all sleep paths (lid-close too). Kali uses systemd/logind — same as Debian.
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 sudo sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
+# Also disable Kali's XFCE power-manager display/system suspend if a desktop runs:
+xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/lid-action-on-ac -s 1 2>/dev/null || true
 sudo systemctl restart systemd-logind
 
 # Time sync (timestamps must be clean for later correlation)
 sudo timedatectl set-ntp true && timedatectl status | grep -i sync
 
-# Docker Engine + Compose plugin (Ubuntu/Debian)
-curl -fsSL https://get.docker.com | sudo sh
+# Docker + Compose v2 (Kali: use the distro packages — Docker's official
+# get.docker.com script does not officially support rolling derivatives.
+# Kali ships docker.io and the compose plugin in its own repos.)
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo systemctl enable --now docker
 sudo usermod -aG docker "$USER"   # log out/in afterwards
 docker compose version            # verify v2.x
+# Fallback if Kali's package set ever lags:
+#   - docker-compose-v2 missing? install the compose plugin binary:
+#     mkdir -p ~/.docker/cli-plugins && curl -fsSL \
+#       https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m) \
+#       -o ~/.docker/cli-plugins/docker-compose && chmod +x ~/.docker/cli-plugins/docker-compose
+#   - or use get.docker.com with caution (rolling distros unsupported)
 ```
 
 Keep the laptop **plugged in**; set any vendor battery-charge cap if available.
