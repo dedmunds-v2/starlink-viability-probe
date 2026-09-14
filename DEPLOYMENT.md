@@ -47,20 +47,14 @@ Keep the laptop **plugged in**; set any vendor battery-charge cap if available.
 
 ## 3. Get the repo onto the laptop
 
-The repo is private (`dedmunds-v2/starlink-viability-probe`). Two options:
+The repo is public — clone directly, no credentials needed:
 
-**Option A — copy directly (simplest):**
 ```bash
-# from your Windows/WSL machine, over your home network:
-scp -r ~/code/my-projects/OPENCODE_PROJECTS/starlink <user>@<laptop-ip>:~/
+git clone https://github.com/dedmunds-v2/starlink-viability-probe.git ~/starlink
 ```
-**Option B — git clone with a deploy key (better for updates):**
-```bash
-ssh-keygen -t ed25519 -C "starlink-probe-laptop"
-cat ~/.ssh/id_ed25519.pub
-# add at: https://github.com/dedmunds-v2/starlink-viability-probe/settings/keys
-git clone git@github.com:dedmunds-v2/starlink-viability-probe.git ~/starlink
-```
+
+(Only if you later want to `git push` changes *from the laptop* would you need
+auth; pulling updates with `git pull` stays credential-free over HTTPS.)
 
 ## 4. Configure
 
