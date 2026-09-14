@@ -171,6 +171,7 @@ must be revisited before any trading-context pilot — council review):
 ```
 starlink/
 ├── PROJECT_PLAN.md          ← this document
+├── DEPLOYMENT.md            ← Starlink-LAN laptop deployment runbook
 ├── probe/
 │   ├── probe.py             ← measurement loop + Prometheus exporter (stdlib only)
 │   ├── path.py              ← per-target traceroute / hop-segmentation collector
