@@ -1,0 +1,141 @@
+{
+  "uid": "starlink-dish",
+  "title": "Starlink Viability — Dish & Ground Truth",
+  "tags": ["starlink", "dish", "telemetry"],
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Dish state",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 5, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "starlink_status_state == 1",
+        "legendFormat": "{{state}}",
+        "instant": true,
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background",
+                  "graphMode": "none", "justifyMode": "auto"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"},
+        "mappings": [],
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}]}}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Active alerts",
+      "description": "Thermal throttle/shutdown, obstruction-map reset etc. matter when reading latency anomalies.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 5, "x": 5, "y": 0},
+      "targets": [{
+        "expr": "sum(starlink_status_alert_*) or vector(0)",
+        "instant": true,
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background",
+                  "graphMode": "none", "justifyMode": "auto"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null},
+          {"color": "red", "value": 1}]}}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Dish uptime",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 5, "x": 10, "y": 0},
+      "targets": [{
+        "expr": "starlink_status_uptime_seconds",
+        "instant": true,
+        "refId": "A"
+      }],
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "GPS sats / az / el",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 9, "x": 15, "y": 0},
+      "targets": [
+        {"expr": "starlink_status_gps_sats", "legendFormat": "sats",
+         "instant": true, "refId": "A"},
+        {"expr": "starlink_status_direction_azimuth", "legendFormat": "az°",
+         "instant": true, "refId": "B"},
+        {"expr": "starlink_status_direction_elevation", "legendFormat": "el°",
+         "instant": true, "refId": "C"}
+      ],
+      "options": {"colorMode": "value", "graphMode": "none", "orientation": "horizontal"}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Dish → POP latency (Starlink's own ping, ms)",
+      "description": "The authoritative satellite+backhaul segment ground truth. Low-priority ping: treat as biased-up bound.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "targets": [{
+        "expr": "starlink_status_pop_ping_latency_ms",
+        "legendFormat": "dish→POP",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "POP ping drop rate (0–1)",
+      "description": "Fraction of lost POP ping replies per sample; sustained >0 correlates with obstructions/handover gaps.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "targets": [{
+        "expr": "starlink_status_pop_ping_drop_rate",
+        "legendFormat": "drop rate",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Cross-validation: dish ping vs traceroute satellite segment (ms)",
+      "description": "Convergence = the CGNAT landmark detector is trustworthy. Divergence flags firmware/path changes.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
+      "targets": [
+        {"expr": "starlink_status_pop_ping_latency_ms",
+         "legendFormat": "dish pop_ping", "refId": "A"},
+        {"expr": "starlink_path_satellite_segment_seconds * 1000",
+         "legendFormat": "trace: {{target}}", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms", "min": 0}}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Throughput (bps) & obstruction",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
+      "targets": [
+        {"expr": "starlink_status_downlink_throughput_bps",
+         "legendFormat": "downlink", "refId": "A"},
+        {"expr": "starlink_status_uplink_throughput_bps",
+         "legendFormat": "uplink", "refId": "B"},
+        {"expr": "starlink_status_fraction_obstructed",
+         "legendFormat": "fraction obstructed", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bps", "min": 0},
+        "overrides": [{"matcher": {"id": "byName", "options": "fraction obstructed"},
+                       "properties": [{"id": "unit", "value": "percentunit"},
+                                      {"id": "max", "value": 1}]}]}
+    }
+  ],
+  "schemaVersion": 39
+}
